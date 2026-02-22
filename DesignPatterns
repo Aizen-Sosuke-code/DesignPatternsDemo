@@ -1,0 +1,257 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+
+namespace DesignPatternsDemo
+{
+    // ====================== SINGLETON ======================
+    public sealed class ConfigurationManager
+    {
+        private static readonly Lazy<ConfigurationManager> _instance =
+            new Lazy<ConfigurationManager>(() => new ConfigurationManager());
+
+        private readonly object _lock = new object();
+        private Dictionary<string, string> _settings;
+
+        private ConfigurationManager()
+        {
+            LoadSettings();
+        }
+
+        public static ConfigurationManager Instance => _instance.Value;
+
+        private void LoadSettings()
+        {
+            if (!File.Exists("config.txt"))
+            {
+                _settings = new Dictionary<string, string>
+                {
+                    {"AppName", "MyApp"},
+                    {"Version", "1.0"}
+                };
+                SaveSettings();
+            }
+            else
+            {
+                _settings = File.ReadAllLines("config.txt")
+                                .Select(l => l.Split('='))
+                                .ToDictionary(s => s[0], s => s[1]);
+            }
+        }
+
+        public void SaveSettings()
+        {
+            lock (_lock)
+            {
+                File.WriteAllLines("config.txt", _settings.Select(kv => $"{kv.Key}={kv.Value}"));
+            }
+        }
+
+        public string Get(string key)
+        {
+            lock (_lock)
+            {
+                return _settings.ContainsKey(key) ? _settings[key] : null;
+            }
+        }
+
+        public void Set(string key, string value)
+        {
+            lock (_lock)
+            {
+                _settings[key] = value;
+                SaveSettings();
+            }
+        }
+    }
+
+    // ====================== BUILDER ======================
+    public class Report
+    {
+        public string Header { get; set; }
+        public string Content { get; set; }
+        public string Footer { get; set; }
+    }
+
+    public interface IReportBuilder
+    {
+        void SetHeader(string header);
+        void SetContent(string content);
+        void SetFooter(string footer);
+        Report GetReport();
+    }
+
+    public class TextReportBuilder : IReportBuilder
+    {
+        private Report _report = new Report();
+
+        public void SetHeader(string header) => _report.Header = $"*** {header} ***";
+
+        public void SetContent(string content) => _report.Content = content;
+
+        public void SetFooter(string footer) => _report.Footer = $"--- {footer} ---";
+
+        public Report GetReport() => _report;
+    }
+
+    public class HtmlReportBuilder : IReportBuilder
+    {
+        private Report _report = new Report();
+
+        public void SetHeader(string header) => _report.Header = $"<h1>{header}</h1>";
+
+        public void SetContent(string content) => _report.Content = $"<p>{content}</p>";
+
+        public void SetFooter(string footer) => _report.Footer = $"<footer>{footer}</footer>";
+
+        public Report GetReport() => _report;
+    }
+
+    public class ReportDirector
+    {
+        public void ConstructReport(IReportBuilder builder)
+        {
+            builder.SetHeader("Monthly Report");
+            builder.SetContent("Sales increased by 20%");
+            builder.SetFooter("Confidential");
+        }
+    }
+
+    // ====================== PROTOTYPE ======================
+    public class Product : ICloneable
+    {
+        public string Name { get; set; }
+        public decimal Price { get; set; }
+        public int Quantity { get; set; }
+
+        public object Clone()
+        {
+            return MemberwiseClone();
+        }
+    }
+
+    public class Discount : ICloneable
+    {
+        public string Code { get; set; }
+        public decimal Amount { get; set; }
+
+        public object Clone()
+        {
+            return MemberwiseClone();
+        }
+    }
+
+    public class Order : ICloneable
+    {
+        public List<Product> Products { get; set; } = new List<Product>();
+        public decimal ShippingCost { get; set; }
+        public List<Discount> Discounts { get; set; } = new List<Discount>();
+        public string PaymentMethod { get; set; }
+
+        public object Clone()
+        {
+            return new Order
+            {
+                Products = this.Products.Select(p => (Product)p.Clone()).ToList(),
+                ShippingCost = this.ShippingCost,
+                Discounts = this.Discounts.Select(d => (Discount)d.Clone()).ToList(),
+                PaymentMethod = this.PaymentMethod
+            };
+        }
+    }
+
+    // ====================== PROGRAM ======================
+    class Program
+    {
+        static void Main()
+        {
+            Console.WriteLine("Выберите паттерн:");
+            Console.WriteLine("1 - Singleton");
+            Console.WriteLine("2 - Builder");
+            Console.WriteLine("3 - Prototype");
+
+            string choice = Console.ReadLine();
+            switch (choice)
+            {
+                case "1": TestSingleton(); break;
+                case "2": TestBuilder(); break;
+                case "3": TestPrototype(); break;
+            }
+
+            Console.WriteLine("\nНажмите любую клавишу...");
+            Console.ReadKey();
+        }
+
+        static void TestSingleton()
+        {
+            void ThreadWork(string key, string value)
+            {
+                var cfg = ConfigurationManager.Instance;
+                cfg.Set(key, value);
+                Console.WriteLine($"{key} = {cfg.Get(key)}");
+            }
+
+            Thread t1 = new Thread(() => ThreadWork("Theme", "Dark"));
+            Thread t2 = new Thread(() => ThreadWork("Theme", "Light"));
+
+            t1.Start();
+            t2.Start();
+            t1.Join();
+            t2.Join();
+
+            var cfgFinal = ConfigurationManager.Instance;
+            Console.WriteLine($"Final Theme: {cfgFinal.Get("Theme")}");
+        }
+
+        static void TestBuilder()
+        {
+            Console.WriteLine("Выберите формат отчета: 1 - Text, 2 - HTML");
+            string format = Console.ReadLine();
+
+            IReportBuilder builder = format == "2" ? new HtmlReportBuilder() : new TextReportBuilder();
+
+            new ReportDirector().ConstructReport(builder);
+            var report = builder.GetReport();
+
+            Console.WriteLine(report.Header);
+            Console.WriteLine(report.Content);
+            Console.WriteLine(report.Footer);
+        }
+
+        static void TestPrototype()
+        {
+            var order = new Order
+            {
+                ShippingCost = 10,
+                PaymentMethod = "Credit Card",
+                Products = new List<Product>
+                {
+                    new Product { Name="Book", Price=12.5m, Quantity=1 },
+                    new Product { Name="Pen", Price=1.2m, Quantity=5 }
+                },
+                Discounts = new List<Discount>
+                {
+                    new Discount { Code="SAVE10", Amount=10 }
+                }
+            };
+
+            var clonedOrder = (Order)order.Clone();
+            clonedOrder.Products[0].Name = "Notebook";
+            clonedOrder.Discounts[0].Amount = 5;
+
+            Console.WriteLine("Original Order Products:");
+            foreach (var p in order.Products)
+                Console.WriteLine($"- {p.Name} x{p.Quantity}");
+
+            Console.WriteLine("Cloned Order Products:");
+            foreach (var p in clonedOrder.Products)
+                Console.WriteLine($"- {p.Name} x{p.Quantity}");
+
+            Console.WriteLine($"Original Discount: {order.Discounts[0].Amount}");
+            Console.WriteLine($"Cloned Discount: {clonedOrder.Discounts[0].Amount}");
+        }
+    }
+}
